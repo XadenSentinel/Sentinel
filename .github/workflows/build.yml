@@ -12,6 +12,9 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
 
