@@ -1,0 +1,23 @@
+# Sentinel - dépendances (Windows 10/11, Python 3.10 ou plus récent ; 3.11/3.12 recommandé)
+customtkinter>=5.2.2      # interface graphique
+sounddevice>=0.4.6        # capture du micro
+vosk>=0.3.45              # reconnaissance vocale hors-ligne
+pywin32>=306              # voix Windows de secours (SAPI), COM
+edge-tts>=6.1.0           # voix neuronale gratuite (Henri, masculine) — nécessite Internet, repli auto sur SAPI
+pycaw>=20230407           # volume Windows en pourcentage
+comtypes>=1.2.0           # requis par pycaw
+yt-dlp>=2024.8.6          # recherche YouTube sans clé d'API (à mettre à jour régulièrement !)
+pystray>=0.19.5           # icône dans la zone de notification
+Pillow>=10.0.0            # dessin de l'icône, requis par pystray
+
+# Facultatif : reconnaissance vocale de précision (Whisper, calcul sur le processeur, modèle téléchargé au 1er lancement)
+# faster-whisper>=1.0.0
+
+# Facultatif : cliquer sur des boutons dans les autres applications (« clique sur Se connecter »)
+# uiautomation>=2.0.18
+
+# Facultatif : luminosité d'un ÉCRAN EXTERNE (DDC/CI). Les écrans de portable marchent sans.
+# monitorcontrol>=3.1.0
+
+# Uniquement pour fabriquer l'.exe
+pyinstaller>=6.6.0

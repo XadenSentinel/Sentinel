@@ -1,0 +1,55 @@
+# Compile Sentinel.exe sur un vrai Windows et publie une Release GitHub.
+# Déclenchement : pousser un tag de version, par exemple :  git tag v1.1.6  puis  git push origin v1.1.6
+name: Compiler et publier
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verifier que la version du code correspond au tag
+        shell: pwsh
+        run: |
+          $codeVersion = python -c "import sentinel; print(sentinel.__version__)"
+          $tag = "${{ github.ref_name }}"
+          if ("v$codeVersion" -ne $tag) {
+            Write-Error "Le tag $tag ne correspond pas a la version du code ($codeVersion) dans sentinel/__init__.py"
+            exit 1
+          }
+
+      - name: Installer les dependances
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generer l'icone
+        run: python tools/make_icon.py
+
+      - name: Compiler l'exe
+        run: pyinstaller --clean --noconfirm sentinel.spec
+
+      - name: Empreinte SHA-256
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist/Sentinel.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  Sentinel.exe" | Out-File -FilePath dist/Sentinel.exe.sha256 -Encoding ascii
+
+      - name: Publier la Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Sentinel.exe
+            dist/Sentinel.exe.sha256
+          generate_release_notes: true

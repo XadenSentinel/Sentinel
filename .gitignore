@@ -1,0 +1,16 @@
+# Environnement et fichiers générés : ne jamais mettre sur GitHub
+.venv/
+venv/
+__pycache__/
+*.pyc
+build/
+dist/
+*.log
+*.zip
+*.old.exe
+.idea/
+.vscode/
+# Données personnelles (elles vivent dans %APPDATA%\Sentinel, mais au cas où)
+config.json
+learned.json
+spotify_token.json
