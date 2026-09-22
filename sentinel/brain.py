@@ -18,6 +18,8 @@ import threading
 import time
 import urllib.error
 import urllib.request
+
+from .say_stream import SayStreamer
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable
@@ -343,6 +345,37 @@ class Brain:
     def available(self) -> bool:
         return self.enabled and self.status()["ok"]
 
+    def find_ollama(self) -> str | None:
+        """Chemin de l'exécutable Ollama, si on le trouve dans son dossier d'installation habituel."""
+        import os
+        import shutil
+
+        found = shutil.which("ollama")
+        if found:
+            return found
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            path = os.path.join(local, "Programs", "Ollama", "ollama.exe")
+            if os.path.exists(path):
+                return path
+        return None
+
+    def launch_local(self) -> bool:
+        """Lance Ollama en tâche de fond s'il est installé. Retourne False si introuvable."""
+        exe = self.find_ollama()
+        if not exe:
+            return False
+        import subprocess
+        import sys
+
+        try:
+            flags = 0x08000000 if sys.platform == "win32" else 0     # CREATE_NO_WINDOW
+            subprocess.Popen([exe, "serve"], creationflags=flags, close_fds=True)
+        except Exception:
+            log.exception("lancement d'Ollama impossible")
+            return False
+        return True
+
     # ------------------------------------------------------------------ prompt
     def system_prompt(self, user_text: str = "") -> str:
         c = self.cfg
@@ -410,7 +443,74 @@ class Brain:
             "{\"actions\":[],\"say\":\"Bonne nuit ! Voulez-vous que je mette le PC en veille ?\"}"
         )
 
-    # ------------------------------------------------------------------ appel du modèle
+    # ------------------------------------------------------------------ appel du modèle en flux (réponse plus rapide)
+    def can_stream(self) -> bool:
+        return bool(self.cfg["brain_stream"]) and self.cfg["brain_backend"] in ("ollama", "openai", "anthropic")
+
+    def _stream_lines(self, path: str, body: dict, timeout: float = 90):
+        """Ouvre une requête en flux et donne les lignes brutes au fur et à mesure qu'elles arrivent."""
+        req = urllib.request.Request(self._base() + path, data=json.dumps(body).encode("utf-8"),
+                                     headers=self._headers(), method="POST")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            for raw_line in resp:
+                line = raw_line.decode("utf-8", "ignore").strip()
+                if line:
+                    yield line
+
+    def _chat_stream(self, messages: list[dict], on_text: Callable[[str], None]) -> str:
+        """Comme _chat, mais appelle on_text(morceau) au fil de l'eau. Retourne le texte JSON complet."""
+        model = self.pick_model(self.status()["models"])
+        if not model:
+            raise BrainError("aucun modèle")
+        full = []
+        try:
+            if self.cfg["brain_backend"] == "anthropic":
+                body = {"model": model, "max_tokens": 700, "temperature": 0.2, "system": messages[0]["content"],
+                        "messages": messages[1:], "stream": True}
+                req = urllib.request.Request(ANTHROPIC_URL, data=json.dumps(body).encode("utf-8"), method="POST",
+                                             headers={"x-api-key": (self.cfg["brain_api_key"] or "").strip(),
+                                                      "anthropic-version": "2023-06-01", "content-type": "application/json"})
+                with urllib.request.urlopen(req, timeout=90) as resp:
+                    for raw_line in resp:
+                        line = raw_line.decode("utf-8", "ignore")
+                        if not line.startswith("data: "):
+                            continue
+                        try:
+                            ev = json.loads(line[6:])
+                        except json.JSONDecodeError:
+                            continue
+                        if ev.get("type") == "content_block_delta":
+                            piece = ev.get("delta", {}).get("text", "")
+                            full.append(piece)
+                            on_text(piece)
+            elif self.cfg["brain_backend"] == "openai":
+                for line in self._stream_lines("/v1/chat/completions", {
+                        "model": model, "messages": messages, "temperature": 0.2, "max_tokens": 450, "stream": True,
+                        "response_format": {"type": "json_object"}}):
+                    if not line.startswith("data: ") or line.strip() == "data: [DONE]":
+                        continue
+                    try:
+                        piece = json.loads(line[6:])["choices"][0]["delta"].get("content", "")
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        continue
+                    full.append(piece)
+                    on_text(piece)
+            else:
+                for line in self._stream_lines("/api/chat", {
+                        "model": model, "messages": messages, "stream": True, "format": "json", "think": False,
+                        "keep_alive": "30m", "options": {"temperature": 0.2, "num_predict": 450, "num_ctx": 4096}}):
+                    try:
+                        piece = json.loads(line).get("message", {}).get("content", "")
+                    except json.JSONDecodeError:
+                        continue
+                    full.append(piece)
+                    on_text(piece)
+        except urllib.error.HTTPError as exc:
+            raise BrainError(f"HTTP {exc.code}") from exc
+        except Exception as exc:
+            raise BrainError(str(exc)) from exc
+        return "".join(full)
+
     def _chat(self, messages: list[dict]) -> str:
         model = self.pick_model(self.status()["models"])
         if not model:
@@ -427,15 +527,22 @@ class Brain:
             "options": {"temperature": 0.2, "num_predict": 450, "num_ctx": 4096}}, timeout=90)
         return data["message"]["content"]
 
-    def ask(self, text: str) -> BrainResult:
-        """Envoie la phrase au modèle. Lève BrainError si le cerveau est indisponible."""
+    def ask(self, text: str, on_speak: Callable[[str], None] | None = None) -> BrainResult:
+        """Envoie la phrase au modèle. Lève BrainError si le cerveau est indisponible.
+        Avec `on_speak`, et si la réponse est une simple discussion (aucune action), Sentinel reçoit le
+        texte au fur et à mesure qu'il arrive, pour commencer à le dire sans attendre la fin — jamais
+        pendant qu'une action doit encore s'exécuter, voir say_stream.py."""
         if not self.enabled:
             raise BrainError("désactivé")
         if time.time() - self._last_use > MEMORY_EXPIRE:
             self.memory.clear()
         messages = [{"role": "system", "content": self.system_prompt(text)}, *self.memory, {"role": "user", "content": text}]
         try:
-            raw = self._chat(messages)
+            if on_speak is not None and self.can_stream():
+                streamer = SayStreamer()
+                raw = self._chat_stream(messages, lambda piece: on_speak(streamer.feed(piece)))
+            else:
+                raw = self._chat(messages)
         except BrainError:
             self.status(force=True)                              # rafraîchit l'état affiché
             raise

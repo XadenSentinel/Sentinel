@@ -131,6 +131,41 @@ Pour eux : soit le dossier + `pip install -r requirements.txt`, soit le `.exe` (
 - Vrai `.exe` autonome : double-clique **`build.bat`** (quelques minutes). Il produit `dist\Sentinel.exe` et crée le
   raccourci Bureau. Les fonctions facultatives lourdes (Whisper) alourdissent beaucoup l'exe.
 
+## Version 1.1.6 (en préparation) — permissions, rapidité, mémoire
+
+- **Permissions par famille d'actions** (page dédiée) : fichiers, clavier, clics, sites web, applis,
+  fenêtres, veille/verrouillage, Discord — chacune activable/désactivable. Les actions les plus
+  sensibles (fermer une appli, veille, verrouillage, quitter Discord) peuvent demander une
+  confirmation vocale : Sentinel demande, et n'agit que si tu réponds « oui ».
+- **Réponse plus rapide** : en discussion (pas d'action à exécuter), Sentinel commence à parler dès la
+  première phrase de l'IA au lieu d'attendre la réponse complète. Jamais avant qu'une action ait fini.
+- **Interrompre Sentinel en lui parlant par-dessus** (off par défaut, marche mieux au casque qu'au
+  haut-parleur) ; **petit son** de confirmation quand il te reconnaît ; **mode silencieux** (n'agit pas
+  moins, mais ne parle plus) ; **Ollama détecté hors ligne** → bouton « Lancer Ollama ».
+- **Mémoire à long terme** : « souviens-toi que… » / « retiens que… », consultable dans Commandes.
+- **Routines de base** : « bonjour » (heure + météo) et « bonne nuit » (veille), personnalisables comme
+  n'importe quelle macro. Pas d'agenda pour l'instant (aucune intégration calendrier).
+- **Mémoire réduite** : l'ancienne interface ne construit plus que la page Accueil au démarrage ; les
+  huit autres pages ne se fabriquent que si tu les ouvres réellement (avec l'interface web, elle reste
+  cachée la plupart du temps). L'analyse de fichiers plafonne plus bas et libère sa mémoire après coup.
+
+## Nouvelle interface web
+
+Sentinel s'ouvre dans une **fenêtre d'application web** (Edge ou Chrome, sans barre d'adresse). Tout est refait :
+- **Écran de démarrage** : la sphère de particules qui communiquent, bouton **Démarrer** (la caméra plonge dans la sphère).
+- **Accueil** : heure, météo, minuteurs, système, transcription en direct, saisie de commandes, bouton parler, couper
+  l'écoute, boutons **✓ Bien compris / ✗ Mal compris** (Sentinel apprend de tes corrections), panneau d'apparence.
+- **Conversation** : historique des échanges. **Commandes** : catalogue, testeur de phrases, macros, corrections,
+  ce que Sentinel a appris. **Applis et PC**, **Musique** (dont Spotify), **Discord**, **Cerveau IA**, **Voix et écoute**,
+  **Réponses**, **Paramètres** (thème, mises à jour, profil à partager, redémarrage) et **Journal** en direct.
+- **Assistant de bienvenue** au premier lancement (prénom, mot d'appel, ville, voix, style).
+- Tous les réglages s'enregistrent tout seuls ; thèmes et couleurs changent en direct, sans redémarrer.
+- `python main.py --classic` (ou `"ui": "classic"`) : ancienne interface. Sans Edge / Chrome, retour automatique à l'ancienne.
+- Sécurité : serveur local sur 127.0.0.1 uniquement, jeton secret par session, contrôle de l'en-tête Host et de l'origine,
+  aucune ressource externe chargée par la page, chaque réglage vérifié (type, limites, liste blanche) côté Python, et les
+  clés secrètes (API) ne sont jamais renvoyées à la page.
+- Rendu WebGL avec repli automatique sur un rendu 2D plus léger ; la densité baisse toute seule si l'affichage ralentit.
+
 ## Réglages indispensables
 
 ### Musique
@@ -250,6 +285,11 @@ sentinel/
   asr.py                 Whisper (reconnaissance de précision, facultatif)
   learning.py            mémoire d'apprentissage (corrections de l'utilisateur)
   actions/interact.py    fenêtres, clavier, clics, sites (avec garde-fous)
+  webui/                 nouvelle interface web : server.py (API locale sécurisée), controller.py, schema.py (réglages vérifiés), window.py, static/ (HTML, CSS, JS, WebGL)
+  permissions.py         familles d'actions et confirmation vocale
+  facts.py               mémoire à long terme (« souviens-toi que… »)
+  say_stream.py           extraction progressive de la réponse de l'IA en flux
+  beep.py                 son de réveil
   brain.py               cerveau IA local (Ollama), actions autorisées et garde-fous
   actions/scan.py        analyse des .exe, dossiers et fichiers
   actions/spotify.py     lecture directe Spotify (API officielle, PKCE)

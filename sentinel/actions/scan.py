@@ -209,7 +209,7 @@ class ExeScanner:
 # Fichiers et dossiers personnels
 # --------------------------------------------------------------------------- #
 class FileFinder:
-    MAX_ENTRIES = 400_000
+    MAX_ENTRIES = 150_000          # plafond volontairement modéré : au-delà, ça pèse sur la mémoire pour peu de gain
 
     def __init__(self, cfg, on_indexed: Callable[[int], None] | None = None) -> None:
         self.cfg = cfg
@@ -247,6 +247,8 @@ class FileFinder:
         with self._lock:
             self.items = items
         log.info("%d fichiers et dossiers indexés", len(items))
+        import gc
+        gc.collect()                                              # libère la mémoire de travail du parcours
         if self.on_indexed:
             self.on_indexed(len(items))
 

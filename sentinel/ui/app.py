@@ -12,6 +12,7 @@ import queue
 import threading
 import time
 from tkinter import filedialog
+from typing import Callable
 
 import customtkinter as ctk
 
@@ -68,11 +69,15 @@ class SentinelApp(ctk.CTk):
         self.accent = self._accent_color(cfg)
         self._tele_at = 0.0
         self._last_inter: dict | None = None
+        self.web = None                 # contrôleur de l'interface web (None = ancienne interface seule)
         self.state_key = "loading"      # (pas « state » : nom réservé par Tk)
         self.current_page = "home"
         self._acc: list[tuple] = []     # widgets recolorés quand l'accent change
         self._closing = False
         self._brain = {"ok": False, "message": "Vérification…", "models": [], "model": ""}
+        self._log_buffer: list[tuple[str, str, str]] = []          # (heure, genre, texte) : gardé même page Journal non construite
+        self._last_asr: tuple[str, str] | None = None               # rejoué quand la page Paramètres se construit
+        self._last_update: tuple[str, object] | None = None         # rejoué quand la page Paramètres se construit
 
         self.title(self._brand().upper())
         self._set_window_icon()
@@ -88,21 +93,20 @@ class SentinelApp(ctk.CTk):
         self.content.grid_rowconfigure(0, weight=1)
         self.content.grid_columnconfigure(0, weight=1)
 
+        # Chaque page ne construit ses widgets QUE la première fois qu'on l'ouvre (voir show_page). Avec
+        # l'interface web active, cette fenêtre reste cachée et sert de secours : ça évite de fabriquer
+        # huit pages entières de widgets pour rien, ce qui allège nettement la mémoire au démarrage.
+        self._page_builders: dict[str, Callable] = {
+            "home": self._build_home, "music": self._build_music, "apps": self._build_apps,
+            "discord": self._build_discord, "commands": self._build_commands, "brain": self._build_brain,
+            "replies": self._build_replies, "settings": self._build_settings, "log": self._build_log,
+        }
         self.pages: dict[str, ctk.CTkBaseClass] = {}
-        for key, builder in (("home", self._build_home), ("music", self._build_music),
-                             ("apps", self._build_apps), ("discord", self._build_discord),
-                             ("commands", self._build_commands), ("brain", self._build_brain),
-                             ("replies", self._build_replies),
-                             ("settings", self._build_settings), ("log", self._build_log)):
-            holder = ctk.CTkFrame(self.content, fg_color="transparent")   # conteneur simple : tkraise() fiable
-            holder.grid(row=0, column=0, sticky="nsew")
-            builder(holder).pack(fill="both", expand=True)
-            self.pages[key] = holder
         self.show_page("home")
 
         self.tray = create_tray(ui_queue, self.accent)
         self.after(60, self._poll_queue)
-        if not cfg["first_run_done"] and not start_hidden:
+        if not cfg["first_run_done"]:
             self.after(1200, self._first_run)
         self.after(33, self._animate)
         self.after(200, self._tick)
@@ -111,8 +115,8 @@ class SentinelApp(ctk.CTk):
 
     def _first_run(self) -> None:
         """Petit assistant de bienvenue (utile quand tu donnes Sentinel à un ami)."""
-        if self._closing:
-            return
+        if self._closing or self.web:
+            return                                     # l'interface web a son propre assistant de bienvenue
         c = self.cfg
         win = ctk.CTkToplevel(self)
         win.title("Bienvenue")
@@ -268,6 +272,13 @@ class SentinelApp(ctk.CTk):
             self.nav_bar[key].configure(fg_color=self.accent if active else "transparent")
 
     def show_page(self, key: str) -> None:
+        if key not in self._page_builders:
+            return
+        if key not in self.pages:
+            holder = ctk.CTkFrame(self.content, fg_color="transparent")
+            holder.grid(row=0, column=0, sticky="nsew")
+            self._page_builders[key](holder).pack(fill="both", expand=True)
+            self.pages[key] = holder
         self.current_page = key
         self.pages[key].tkraise()
         self._paint_nav()
@@ -577,6 +588,8 @@ class SentinelApp(ctk.CTk):
         return page
 
     def _render_learned(self) -> None:
+        if "commands" not in self.pages:
+            return
         for child in self.learned_holder.winfo_children():
             child.destroy()
         items = list(self.assistant.memory.items)
@@ -820,6 +833,9 @@ class SentinelApp(ctk.CTk):
 
     def _show_brain(self, status: dict) -> None:
         self._brain = status
+        if "brain" not in self.pages:
+            self.hud.set_text("badge", self._badge())
+            return
         ok = bool(status.get("ok")) and self.cfg["brain_enabled"]
         text = status.get("message", "") if self.cfg["brain_enabled"] else "Désactivé"
         self.lbl_brain.configure(text=("● " if ok else "○ ") + text, text_color=OK if ok else DANGER if self.cfg["brain_enabled"] else DIM)
@@ -1214,6 +1230,16 @@ class SentinelApp(ctk.CTk):
         self.after(2500, lambda: self.lbl_saved.configure(text=""))
 
     def _show_asr(self, state: str, detail: str) -> None:
+        self._last_asr = (state, detail)
+        self.stats["Whisper"].configure(text={
+            "off": "désactivé", "loading": f"chargement {detail}…", "ready": f"prêt ✓ ({detail})", "error": "indisponible",
+        }.get(state, state), text_color={"ready": OK, "error": DANGER}.get(state, DIM))
+        if state == "error":
+            self._append_log("error", f"Whisper : {detail}")
+        elif state in ("ready", "loading"):
+            self._append_log("info", f"Whisper : {'prêt ✓ (' + detail + ')' if state == 'ready' else 'chargement ' + detail + '…'}")
+        if "settings" not in self.pages:
+            return
         text, color = {
             "off": ("désactivé", DIM), "loading": (f"chargement {detail}… (1re fois : téléchargement)", DIM),
             "ready": (f"prêt ✓ ({detail})", OK), "error": ("indisponible", DANGER),
@@ -1225,6 +1251,14 @@ class SentinelApp(ctk.CTk):
             self._append_log("info", f"Whisper : {text}")
         self.lbl_asr.configure(text=("Whisper : " + text) if state != "error" else f"Whisper indisponible — {detail}",
                                text_color=DANGER if state == "error" else DIM)
+
+    def _replay_asr(self) -> None:
+        if self._last_asr:
+            state, detail = self._last_asr
+            text = {"off": "désactivé", "loading": f"chargement {detail}…", "ready": f"prêt ✓ ({detail})",
+                   "error": "indisponible"}.get(state, state)
+            self.lbl_asr.configure(text=("Whisper : " + text) if state != "error" else f"Whisper indisponible — {detail}",
+                                   text_color=DANGER if state == "error" else DIM)
 
     def _apply_and_restart(self) -> None:
         self._apply_settings()
@@ -1276,15 +1310,24 @@ class SentinelApp(ctk.CTk):
             self._show_update("error", str(exc))
 
     def _show_update(self, state: str, payload) -> None:
+        self._last_update = (state, payload)
         if state == "available":
             self._release = payload
-            self.lbl_update.configure(text=f"Nouvelle version disponible : {payload.version} (tu as la {__version__})", text_color=OK)
-            self.lbl_notes.configure(text=payload.notes[:600])
-            self.btn_upd_install.configure(state="normal")
             self.lbl_version.configure(text=f"● v{payload.version} dispo", text_color=self.accent)
             self._append_log("info", f"Mise à jour disponible : {payload.version}")
         elif state == "uptodate":
             self._release = None
+        elif state == "installed":
+            # doit se déclencher même si la page Paramètres n'a jamais été ouverte
+            self.after(800, self._quit)
+            self.after(6000, lambda: os._exit(0))                  # filet de sécurité : le script attend la fin du processus
+        if "settings" not in self.pages:
+            return
+        if state == "available":
+            self.lbl_update.configure(text=f"Nouvelle version disponible : {payload.version} (tu as la {__version__})", text_color=OK)
+            self.lbl_notes.configure(text=payload.notes[:600])
+            self.btn_upd_install.configure(state="normal")
+        elif state == "uptodate":
             self.lbl_update.configure(text=f"Tu es à jour ✓ (version {__version__})", text_color=OK)
             self.lbl_notes.configure(text="")
             self.btn_upd_install.configure(state="disabled")
@@ -1294,11 +1337,13 @@ class SentinelApp(ctk.CTk):
             self.bar_update.set(done / total if total else 0.5)
         elif state == "installed":
             self.lbl_update.configure(text="Installation en cours : Sentinel va se fermer puis se relancer tout seul…", text_color=OK)
-            self.after(800, self._quit)
-            self.after(6000, lambda: os._exit(0))                  # filet de sécurité : le script attend la fin du processus
         elif state == "error":
             self.btn_upd_install.configure(state="normal" if self._release else "disabled")
             self.lbl_update.configure(text=str(payload), text_color=DANGER)
+
+    def _replay_update(self) -> None:
+        if self._last_update:
+            self._show_update(*self._last_update)
 
     def _export_profile(self) -> None:
         path = filedialog.asksaveasfilename(defaultextension=".json", initialfile="mon-profil-sentinel.json",
@@ -1341,11 +1386,20 @@ class SentinelApp(ctk.CTk):
             self.txt_log.tag_config(tag, foreground=color)
         self.txt_log.configure(state="disabled")
         self._btn(page, "Effacer", self._clear_log, width=100).pack(anchor="e", pady=(8, 0))
+        for stamp, kind, text in self._log_buffer:                 # rattrape ce qui s'est passé avant que la page existe
+            self._write_log(stamp, kind, text)
         return page
 
     def _append_log(self, kind: str, text: str) -> None:
         prefix = {"heard": "entendu ", "cmd": "COMMANDE", "reply": "réponse ", "info": "info    ", "error": "ERREUR  "}.get(kind, kind)
         stamp = datetime.datetime.now().strftime("%H:%M:%S")
+        self._log_buffer.append((stamp, kind, text))
+        del self._log_buffer[:-600]
+        if "log" in self.pages:                                    # la page n'existe que si elle a déjà été ouverte
+            self._write_log(stamp, kind, text, prefix)
+
+    def _write_log(self, stamp: str, kind: str, text: str, prefix: str | None = None) -> None:
+        prefix = prefix or {"heard": "entendu ", "cmd": "COMMANDE", "reply": "réponse ", "info": "info    ", "error": "ERREUR  "}.get(kind, kind)
         self.txt_log.configure(state="normal")
         self.txt_log.insert("end", f"{stamp}  {prefix}  {text}\n", kind)
         if int(self.txt_log.index("end-1c").split(".")[0]) > 600:
@@ -1354,6 +1408,7 @@ class SentinelApp(ctk.CTk):
         self.txt_log.configure(state="disabled")
 
     def _clear_log(self) -> None:
+        self._log_buffer.clear()
         self.txt_log.configure(state="normal")
         self.txt_log.delete("1.0", "end")
         self.txt_log.configure(state="disabled")
@@ -1422,9 +1477,21 @@ class SentinelApp(ctk.CTk):
         elif kind == "weather":
             self._show_weather(ev[1], ev[2])
         elif kind == "show":
+            if self.web:
+                self.web.open_window()                 # l'icône de la zone de notification ouvre la nouvelle interface
+            else:
+                self.deiconify()
+                self.lift()
+                self.focus_force()
+        elif kind == "show_classic":
             self.deiconify()
             self.lift()
             self.focus_force()
+            if len(ev) > 1 and ev[1] in self.pages:
+                self.show_page(ev[1])
+        elif kind == "set_listen":
+            (self.sw_listen.select if ev[1] else self.sw_listen.deselect)()
+            self._toggle_listen()
         elif kind == "toggle_listen":
             self.sw_listen.toggle()
         elif kind == "quit":
@@ -1452,6 +1519,8 @@ class SentinelApp(ctk.CTk):
             return
         self._closing = True
         try:
+            if self.web:
+                self.web.stop()
             self.assistant.shutdown()
             if self.tray:
                 self.tray.stop()

@@ -149,6 +149,32 @@ class Interactor:
         time.sleep(0.25)
         return R(self.cfg, "win_focus", name=query)
 
+    def focus_exact(self, title: str) -> bool:
+        """Ramène au premier plan la fenêtre dont le titre est EXACTEMENT `title` (True si trouvée)."""
+        if not _WIN:
+            return False
+        want = normalize(title)
+        found: list[int] = []
+        me = os.getpid()
+
+        def visit(hwnd, _lparam) -> bool:
+            if _u.IsWindowVisible(hwnd) and normalize(_title(hwnd)) == want:
+                pid = wintypes.DWORD()
+                _u.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if pid.value != me:
+                    found.append(int(hwnd))
+            return True
+
+        _u.EnumWindows(_ENUM(visit), 0)
+        if not found:
+            return False
+        if _u.IsIconic(found[0]):
+            _u.ShowWindow(found[0], 9)
+        ctypes.windll.user32.keybd_event(0x12, 0, 0, 0)
+        ctypes.windll.user32.keybd_event(0x12, 0, 2, 0)
+        _u.SetForegroundWindow(found[0])
+        return True
+
     def press(self, keys: str) -> str:
         combo = normalize_keys(keys)
         if combo not in SAFE_KEYS:

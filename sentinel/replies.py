@@ -228,6 +228,16 @@ CATALOG: dict[str, tuple] = {
                    ["Hmm, laisse-moi réfléchir.", "Une seconde."], "…"),
     "brain_refuse": _e("", (), "Je préfère que vous me le demandiez explicitement pour cette action.",
                        "Je préfère que tu me le demandes clairement pour ça.", "Dis-le explicitement."),
+    # ------------------------------------------------------------ permissions et mémoire
+    "perm_refused": _e("", (), "Cette action est désactivée dans les Permissions.",
+                       "Cette action est désactivée dans Permissions.", "Désactivé."),
+    "perm_confirm": _e("Avant une action sensible", ("action",), "Tu veux vraiment {action} ? Dis oui pour confirmer.",
+                       "Tu veux vraiment {action} ? Dis oui.", "{action} ? Oui ?"),
+    "perm_cancelled": _e("", (), "D'accord, j'annule.", "Ok, j'annule.", "Annulé."),
+    "remembered": _e("Après « souviens-toi que… »", ("text",), "Je m'en souviendrai.", "Noté, je garde ça en tête.", "Noté."),
+    "dnd_on": _e("Mode silencieux activé", (), "Mode silencieux activé. Je n'annonce plus rien à voix haute.",
+                "Mode silencieux activé, je dis plus rien à voix haute.", "Silencieux."),
+    "dnd_off": _e("Mode silencieux désactivé", (), "Mode silencieux désactivé.", "Mode silencieux désactivé.", "Voix réactivée."),
     "brain_off": _e("", (), "Mon cerveau IA n'est pas disponible. Vérifiez qu'Ollama est lancé.",
                     "Mon cerveau IA est pas dispo. Vérifie qu'Ollama est lancé.", "IA indisponible."),
     "weather_city_unknown": _e("", ("ville",), "Je ne trouve pas la ville {ville}.", "Je trouve pas la ville {ville}.", "Ville inconnue."),
@@ -266,7 +276,7 @@ FAIL_KEYS = {
     "path_ask", "spotify_not_connected", "spotify_no_premium", "spotify_no_device", "spotify_not_found",
     "music_ask", "music_fallback", "volume_read_error", "discord_already_muted", "discord_already_active",
     "deafen_already_on", "deafen_already_off", "win_missing", "interact_blocked", "key_refused", "ui_notfound",
-    "ui_missing", "ui_refused", "url_refused",
+    "ui_missing", "ui_refused", "url_refused", "perm_refused", "perm_confirm",
 }
 _local = threading.local()
 

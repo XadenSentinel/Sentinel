@@ -1,6 +1,11 @@
 """Configuration persistante et chemins (compatibles PyInstaller)."""
 from __future__ import annotations
 
+
+def _permissions_defaults() -> dict:
+    from .permissions import DEFAULTS
+    return DEFAULTS
+
 import copy
 import json
 import logging
@@ -59,8 +64,16 @@ DEFAULTS: dict = {
     "hud_fx": True,               # balayage lumineux, télémétrie animée
     "assistant_name": "",         # nom affiché (vide = le mot déclencheur)
     "first_run_done": False,      # assistant de bienvenue déjà passé
+    "ui": "web",                  # web (nouvelle interface) | classic (ancienne fenêtre)
+    "sphere_density": 1400,       # nombre de particules de la sphère
+    "skip_intro": False,          # passer directement à l'accueil, sans écran de démarrage
     "update_check": True,         # chercher une mise à jour au démarrage (au plus une fois par jour)
     "update_last_check": 0.0,
+    "permissions": dict(_permissions_defaults()),   # familles d'actions activées / avec confirmation
+    "dnd": False,                  # mode silencieux : n'exécute rien de moins, mais ne parle plus
+    "wake_sound": True,            # petit bip quand Sentinel te reconnaît
+    "barge_in": False,             # couper Sentinel si tu parles par-dessus (par défaut off : dépend du micro/HP)
+    "brain_stream": True,          # commencer à parler dès la première phrase de l'IA, quand c'est possible
     "minimize_to_tray": True,
     "start_with_windows": False,
     # --- actions ---
@@ -71,7 +84,10 @@ DEFAULTS: dict = {
     "playlists": {},              # "rap fr" -> lien YouTube / YouTube Music / Spotify
     "app_aliases": {},            # "fortnite" -> chemin, URL ou commande
     "corrections": {},            # "dans so" -> "damso" (mots mal compris)
-    "shortcuts": {},              # "mode jeu" -> "coupe le son ; lance fortnite" (macros vocales)
+    "shortcuts": {                # "mode jeu" -> "coupe le son ; lance fortnite" (macros vocales)
+        "bonjour": "quelle heure est il ; quelle est la meteo",     # routine de base ; personnalisable
+        "bonne nuit": "mets l'ordinateur en veille",
+    },
     # --- personnalité ---
     "user_name": "",              # comment Sentinel t'appelle (vide = rien)
     "reply_style": "jarvis",      # jarvis | cool | court
@@ -170,6 +186,10 @@ def import_profile(cfg: "Config", path) -> int:
     """Applique un profil exporté. Retourne le nombre de réglages importés (les clés inconnues sont ignorées)."""
     with open(path, encoding="utf-8") as f:
         payload = json.load(f)
+    return apply_profile(cfg, payload)
+
+
+def apply_profile(cfg: "Config", payload) -> int:
     settings = payload.get("settings", {}) if isinstance(payload, dict) else {}
     count = 0
     for key in PROFILE_KEYS:

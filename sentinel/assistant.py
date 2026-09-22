@@ -21,7 +21,10 @@ from .actions.system_audio import SystemAudio
 from .actions.timers import Timers, TimerItem
 from .actions.weather import Weather, WeatherError
 from .brain import Brain, BrainError, INFO_INTENTS, TRUTH_INTENTS
+from .beep import play_wake
+from .facts import FactsMemory
 from .learning import LearnedMemory, describe
+from .permissions import confirm_needed, family_enabled
 from .updater import UpdateError, Updater
 from .nlu import Intent, _MUSIC_WORDS, clean, normalize, parse_command
 from .replies import FAIL_KEYS, R, all_variants, fr_date, fr_time, join, reset_keys, used_keys
@@ -58,6 +61,9 @@ class Assistant:
         self.updater = Updater(cfg)                                # mises à jour depuis GitHub
         self.memory = LearnedMemory()                              # ce que Sentinel a appris de tes corrections
         self.brain.learned = self.memory.prompt_block
+        self.facts = FactsMemory()                                 # mémoire à long terme (« souviens-toi que… »)
+        self.brain.facts = self.facts.prompt_block
+        self._pending: tuple[Intent, float] | None = None          # action en attente de confirmation vocale
         self._trace: list[Intent] = []                             # actions exécutées pour la commande en cours
         self._last: dict | None = None                             # dernière commande (boutons ✓ / ✗ de l'interface)
         self._last_brain: tuple | None = None
@@ -130,6 +136,8 @@ class Assistant:
         return list(dict.fromkeys(names))
 
     def _on_wake(self) -> None:
+        if self.cfg["wake_sound"]:
+            play_wake()
         self.speaker.say(R(self.cfg, "ack"))
 
     def _on_command(self, text: str) -> None:
@@ -177,7 +185,7 @@ class Assistant:
     def _process(self, text: str) -> None:
         self.emit("state", "thinking")
         self.emit("log", "cmd", text)
-        self._trace, self._last_brain = [], None
+        self._trace, self._last_brain, self._already_spoken = [], None, False
         try:
             reply = self.run_text(text)
         except Exception:
@@ -189,13 +197,27 @@ class Assistant:
         self.emit("interaction", dict(self._last))
         if reply:
             self.emit("log", "reply", reply)
-            self.speaker.say(reply)
+            if not self._already_spoken:
+                self.speaker.say(reply)
         if not self.speaker.busy.is_set():
             self.emit("state", self._rest_state())
 
+    _YES = re.compile(r"^(?:oui|ouais|ouep|yes|vas[- ]?y|confirme|affirmatif|carrement|clair|d.?accord|exact|go)\b")
+    _NO = re.compile(r"^(?:non|nan|annule|stop|laisse tomber|negatif|pas maintenant)\b")
+
     def run_text(self, text: str, learned: bool = True) -> str:
         """Texte d'une commande -> exécution -> phrase de réponse.
-        Ordre : corrections apprises -> macros vocales -> règles rapides -> cerveau IA (si dispo) pour tout le reste."""
+        Ordre : confirmation en attente -> corrections apprises -> macros -> règles -> cerveau IA."""
+        if self._pending is not None:
+            it, deadline = self._pending
+            self._pending = None
+            n = normalize(text)
+            if time.time() <= deadline:
+                if self._YES.match(n):
+                    return self._dispatch(it)
+                if self._NO.match(n):
+                    return R(self.cfg, "perm_cancelled")
+            # phrase sans rapport, ou délai dépassé : on abandonne la confirmation et on traite normalement
         if learned:
             meant = self.memory.lookup(text)
             if meant and clean(meant) != clean(text):
@@ -207,12 +229,13 @@ class Assistant:
         n = self._apply_corrections(text)
         commands = self._expand_shortcut(n)
         if len(commands) > 1:
+            replies = []
             for cmd in commands:
                 try:
-                    self._execute(parse_command(cmd))
+                    replies.append(self._execute(self._arbitrate(parse_command(cmd), cmd)))
                 except Exception:
                     log.exception("étape de macro en échec : %s", cmd)
-            return R(self.cfg, "done")
+            return join(*replies) or R(self.cfg, "done")
 
         parts = self._split_multi(commands[0])
         if parts:                                                 # « baisse le son et donne-moi la météo »
@@ -225,12 +248,16 @@ class Assistant:
                 return answer
         return self._execute(intent)
 
+    _RAW_REMEMBER = re.compile(r"^\s*(?:souviens[- ]toi|retiens|n.oublie pas)\s+(?:que\s+)?(.+?)\s*[.!]?\s*$", re.I | re.S)
     _RAW_TYPE = re.compile(r"^\s*(?:tape|tapes|saisis|dicte|ecris|écris|écrire)\s*:?\s+(.+?)\s*$", re.I | re.S)
     _RAW_URL = re.compile(r"^\s*(?:va|vas|aller|ouvre|ouvrir|navigue)\s+(?:sur|vers|à|a)?\s*((?:https?://)?[\w-]+(?:\.[\w-]+)+(?:/\S*)?)\s*[.!?]?\s*$", re.I)
 
     @classmethod
     def _parse_raw(cls, text: str) -> Intent | None:
         """Règles qui ont besoin du texte ORIGINAL (accents, majuscules, points) : dictée et adresses de sites."""
+        m = cls._RAW_REMEMBER.match(text)
+        if m:
+            return Intent("remember", {"text": m.group(1).strip().strip("«»\"")})
         m = cls._RAW_URL.match(text)
         if m:
             return Intent("open_url", {"url": m.group(1)})
@@ -295,8 +322,20 @@ class Assistant:
         filler = threading.Timer(3.5, lambda: self.speaker.say(R(self.cfg, "thinking")))
         filler.daemon = True
         filler.start()
+        spoken_live = threading.Event()
+
+        def on_speak(chunk: str) -> None:
+            """Reçoit le texte de l'IA au fil de l'eau (uniquement pour une discussion, jamais une action)."""
+            if not chunk:
+                return
+            if not spoken_live.is_set():
+                spoken_live.set()
+                filler.cancel()
+                self.emit("state", "speaking")
+            self.speaker.say(chunk)
+
         try:
-            result = self.brain.ask(text)
+            result = self.brain.ask(text, on_speak)
             self._last_brain = (text, result)
         except BrainError as exc:
             log.warning("cerveau IA en échec : %s", exc)
@@ -321,6 +360,8 @@ class Assistant:
         else:
             answer = result.say or R(self.cfg, "unknown", heard=normalized)
             self._follow_up = bool(result.say)                    # discussion : on laisse la parole à l'utilisateur
+        if spoken_live.is_set():
+            self._already_spoken = True                           # déjà dit au fil de l'eau : _process ne le redit pas
         return answer
 
     # ------------------------------------------------------------------ apprentissage
@@ -340,6 +381,14 @@ class Assistant:
         self.memory.add_example(text, [{"intent": a.name, "args": a.args} for a in result.actions], result.say)
         self.emit("learned")
         return True
+
+    def set_dnd(self, on: bool) -> str:
+        self.cfg["dnd"] = bool(on)
+        self.cfg.save()
+        msg = R(self.cfg, "dnd_on" if on else "dnd_off")
+        self.speaker.say(msg, force=True)
+        self.emit("log", "reply", msg)
+        return ""
 
     def explain(self, text: str) -> str:
         """Pour la page Commandes : ce que Sentinel comprendrait, SANS rien exécuter."""
@@ -388,8 +437,25 @@ class Assistant:
 
     def _execute(self, it: Intent) -> str:
         self._trace.append(it)
+        if not family_enabled(self.cfg, it.name):
+            log.info("action refusée par les permissions : %s", it.name)
+            return R(self.cfg, "perm_refused")
+        if confirm_needed(self.cfg, it.name):
+            self._pending = (it, time.time() + 20)
+            self._follow_up = True
+            label, _, detail = describe(it).partition(" → ")
+            action = f"{label.lower()} ({detail})" if detail else label.lower()
+            return R(self.cfg, "perm_confirm", action=action)
+        return self._dispatch(it)
+
+    def _dispatch(self, it: Intent) -> str:
         a, c = it.args, self.cfg
         match it.name:
+            case "remember":
+                self.facts.add(a["text"])
+                return R(c, "remembered", text=a["text"])
+            case "dnd_set":
+                return self.set_dnd(a["on"])
             case "empty":
                 return ""
             case "smalltalk":

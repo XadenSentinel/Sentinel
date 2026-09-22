@@ -18,7 +18,8 @@ def present(pkg):
     return importlib.util.find_spec(pkg) is not None
 
 
-datas = [("assets", "assets")]            # icône de fenêtre -> bundle_dir()/assets
+datas = [("assets", "assets"),            # icône de fenêtre -> bundle_dir()/assets
+         ("sentinel/webui/static", "sentinel/webui/static")]   # pages de la nouvelle interface
 binaries = []
 hiddenimports = [
     "win32com", "win32com.client", "pythoncom", "pywintypes", "win32timezone",

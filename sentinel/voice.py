@@ -33,6 +33,8 @@ MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip"
 Emit = Callable[..., None]
 MAX_UTTERANCE_CHUNKS = 80          # 80 blocs de 0,25 s = 20 s
 LOOSE_WAKE = 0.66                  # seuil « ça ressemble à Sentinel » pour déclencher Whisper
+BARGE_RMS = 0.11                   # niveau micro à partir duquel une voix par-dessus Sentinel compte
+BARGE_FRAMES = 5                   # nombre de blocs consécutifs au-dessus du seuil avant de couper
 
 
 # --------------------------------------------------------------------------- #
@@ -209,6 +211,16 @@ class Listener(threading.Thread):
                     utterance.clear()
                     if self.active_until and self.speaker.busy.is_set():
                         self.active_until = time.time() + float(self.cfg["listen_timeout"])
+                    if self.enabled.is_set() and self.speaker.busy.is_set() and self.cfg["barge_in"]:
+                        if _rms(data) > BARGE_RMS:
+                            self._loud_run = getattr(self, "_loud_run", 0) + 1
+                            if self._loud_run >= BARGE_FRAMES:
+                                self._loud_run = 0
+                                self.speaker.interrupt()
+                                self.active_until = time.time() + float(self.cfg["listen_timeout"])
+                                self.emit("state", "listening")
+                        else:
+                            self._loud_run = 0
                     continue
                 if was_muted:
                     recognizer.Reset()

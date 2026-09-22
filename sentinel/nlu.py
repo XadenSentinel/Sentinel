@@ -279,6 +279,12 @@ def _parse(n: str, raw: str) -> Intent:
     if opening:
         return opening
 
+    # -- Mode silencieux -------------------------------------------------------------
+    if re.match(r"^(?:active|allume|mets) (?:le )?(?:mode silencieux|mode ne pas deranger)$", n):
+        return Intent("dnd_set", {"on": True})
+    if re.match(r"^(?:desactive|coupe|eteins|arrete) (?:le )?(?:mode silencieux|mode ne pas deranger)$", n):
+        return Intent("dnd_set", {"on": False})
+
     # -- Raccourcis usuels dans l'application active (onglets, copier/coller, défilement…) -------
     for pattern, keys in _KEY_RULES:
         if re.match(pattern, n):

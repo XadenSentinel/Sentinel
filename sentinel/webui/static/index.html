@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Sentinel</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="favicon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="bg"></div>
+<canvas id="sphere"></canvas>
+<div id="scan"></div>
+
+<section id="start">
+  <div class="start-inner">
+    <div class="eyebrow">Assistant vocal</div>
+    <h1 id="brand">SENTINEL</h1>
+    <p id="startStatus" class="startStatus"><span class="dot"></span><span id="startStatusText">Initialisation…</span></p>
+    <button id="btnStart" class="cta" type="button">Démarrer</button>
+  </div>
+  <div class="start-foot">
+    <span id="ver" class="mono dim"></span>
+    <span class="grow"></span>
+    <button id="btnClassicStart" class="link" type="button">Réglages avancés</button>
+    <button id="btnQuitStart" class="link" type="button">Quitter</button>
+  </div>
+</section>
+
+<div id="flash"></div>
+
+<main id="hud" class="hud hidden">
+  <nav class="rail" aria-label="Navigation">
+    <div class="rail-brand"><span class="rail-dot"></span><span id="railBrand">Sentinel</span></div>
+    <button class="nav active" data-view="home" type="button"><i>◉</i><span>Accueil</span></button>
+    <button class="nav" data-view="chat" type="button"><i>✦</i><span>Conversation</span></button>
+    <div class="rail-sep">Configuration</div>
+    <button class="nav" data-view="commands" type="button"><i>☰</i><span>Commandes</span></button>
+    <button class="nav" data-view="apps" type="button"><i>▣</i><span>Applis et PC</span></button>
+    <button class="nav" data-view="music" type="button"><i>♫</i><span>Musique</span></button>
+    <button class="nav" data-view="discord" type="button"><i>◈</i><span>Discord</span></button>
+    <button class="nav" data-view="brain" type="button"><i>✧</i><span>Cerveau IA</span></button>
+    <button class="nav" data-view="voice" type="button"><i>◖</i><span>Voix et écoute</span></button>
+    <button class="nav" data-view="replies" type="button"><i>✎</i><span>Réponses</span></button>
+    <button class="nav" data-view="permissions" type="button"><i>◆</i><span>Permissions</span></button>
+    <button class="nav" data-view="settings" type="button"><i>⚙</i><span>Paramètres</span></button>
+    <button class="nav" data-view="log" type="button"><i>≡</i><span>Journal</span></button>
+    <div class="grow"></div>
+    <button class="nav out" data-classic="" type="button" title="Ouvre l'ancienne fenêtre"><i>▤</i><span>Mode classique</span></button>
+    <button id="btnQuit" class="nav quit" type="button"><i>⏻</i><span>Quitter</span></button>
+  </nav>
+
+  <section id="view-home" class="view">
+    <header class="top">
+      <div class="clockbox"><div id="clock" class="clock">--:--</div><div id="date" class="date"></div></div>
+      <div class="pills">
+        <button id="pillUpdate" class="pill accent hidden" type="button"></button>
+        <span id="pillIA" class="pill"><span class="dot"></span><span>IA</span></span>
+        <span id="pillVoice" class="pill"><span class="dot ok"></span><span>Voix</span></span>
+        <span id="pillMic" class="pill"><span class="dot"></span><span>Micro</span></span>
+      </div>
+    </header>
+
+    <aside class="side">
+      <div class="card" id="cardWeather">
+        <div class="card-h">Météo</div>
+        <div id="wxMain" class="wx-main">—</div>
+        <div id="wxSub" class="dim small">Chargement…</div>
+      </div>
+      <div class="card" id="cardTimers">
+        <div class="card-h">Minuteurs</div>
+        <div id="timers" class="dim small">Aucun en cours</div>
+      </div>
+      <div class="card">
+        <div class="card-h">Système</div>
+        <div class="meter"><span>CPU</span><div class="bar"><i id="barCpu"></i></div><b id="valCpu">0%</b></div>
+        <div class="meter"><span>RAM</span><div class="bar"><i id="barRam"></i></div><b id="valRam">0%</b></div>
+        <div class="kv"><span>Applications</span><b id="kvApps">—</b></div>
+        <div class="kv"><span>Fichiers</span><b id="kvFiles">—</b></div>
+      </div>
+    </aside>
+
+    <footer class="bottom">
+      <div id="stateLabel" class="state">Initialisation</div>
+      <div id="hint" class="hint"></div>
+      <div id="heard" class="heard"></div>
+      <div id="reply" class="reply"></div>
+      <div id="learn" class="learn hidden"><span id="learnText" class="small dim"></span>
+        <button id="btnOk" type="button" class="mini">✓ Bien compris</button><button id="btnBad" type="button" class="mini bad">✗ Mal compris</button></div>
+      <form id="cmdForm" class="cmd" autocomplete="off">
+        <input id="cmdInput" type="text" placeholder="Écris une commande…" maxlength="400" aria-label="Commande">
+        <button id="btnTalk" type="button" class="round" title="Parler maintenant" aria-label="Parler maintenant"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+        <button id="btnMute" type="button" class="pillbtn" title="Couper / activer l'écoute" aria-label="Couper ou activer l'écoute"><span class="dot ok"></span><span id="muteText">Écoute</span></button>
+        <button id="btnGear" type="button" class="round" title="Apparence" aria-label="Apparence"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+      </form>
+    </footer>
+
+    <div id="look" class="look hidden">
+      <div class="card-h">Apparence</div>
+      <div class="label">Couleur</div>
+      <div id="swatches" class="swatches"></div>
+      <div class="row"><span class="small dim">Couleur libre</span><input id="customColor" type="color" value="#00e5ff"></div>
+      <div class="label">Densité de la sphère <b id="densVal"></b></div>
+      <input id="density" type="range" min="400" max="4000" step="100">
+      <label class="check"><input id="fx" type="checkbox"><span>Effets (balayage, lueurs)</span></label>
+      <label class="check"><input id="skipIntro" type="checkbox"><span>Passer l'écran de démarrage</span></label>
+    </div>
+  </section>
+
+  <section id="view-page" class="view hidden"><div id="page" class="page"></div></section>
+
+  <section id="view-chat" class="view hidden">
+    <header class="chat-h"><div class="title">Conversation</div><button id="btnClear" class="link" type="button">Effacer l'historique</button></header>
+    <div id="chatList" class="chat-list"></div>
+    <form id="chatForm" class="chat-in" autocomplete="off">
+      <input id="chatInput" type="text" placeholder="Écris-lui comme à une personne…" maxlength="400" aria-label="Message">
+      <button type="submit" class="cta small-cta">Envoyer</button>
+    </form>
+  </section>
+</main>
+
+<div id="modal" class="modal hidden"><div id="modalBox" class="modal-box"></div></div>
+<div id="toast" class="toast hidden"></div>
+<script src="sphere.js"></script>
+<script src="app.js"></script>
+<script src="pages.js"></script>
+</body>
+</html>

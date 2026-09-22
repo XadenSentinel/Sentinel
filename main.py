@@ -2,6 +2,7 @@
 
     python main.py              # lance la fenêtre
     python main.py --minimized  # démarre réduit dans la zone de notification
+    python main.py --classic    # ancienne interface (fenêtre Tk) au lieu de la nouvelle interface web
 """
 from __future__ import annotations
 
@@ -42,6 +43,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Sentinel - assistant vocal")
     parser.add_argument("--minimized", action="store_true",
                         help="démarre réduit (zone de notification)")
+    parser.add_argument("--classic", action="store_true",
+                        help="utilise l'ancienne interface au lieu de la nouvelle interface web")
     args = parser.parse_args()
 
     _setup_logging()
@@ -64,8 +67,27 @@ def main() -> int:
         from sentinel.ui.app import SentinelApp
         ui_queue: "queue.Queue" = queue.Queue()
         assistant = Assistant(cfg, ui_queue)
-        app = SentinelApp(cfg, assistant, ui_queue, start_hidden=args.minimized)
-        assistant.start()
+
+        web = None
+        if not args.classic and cfg["ui"] == "web":
+            from sentinel.webui.window import find_browser
+            if find_browser():
+                from sentinel.webui.controller import WebController
+                tk_queue: "queue.Queue" = queue.Queue()      # événements pour la fenêtre classique (réglages avancés)
+                web = WebController(cfg, assistant, ui_queue, tk_queue)
+            else:
+                log.warning("Edge / Chrome introuvable : ancienne interface utilisée")
+
+        if web:
+            app = SentinelApp(cfg, assistant, tk_queue, start_hidden=True)   # fenêtre classique cachée
+            app.web = web
+            web.start()
+            assistant.start()
+            if not args.minimized:
+                app.after(300, web.open_window)
+        else:
+            app = SentinelApp(cfg, assistant, ui_queue, start_hidden=args.minimized)
+            assistant.start()
         log.info("Sentinel démarré")
         app.mainloop()
         log.info("Sentinel arrêté proprement")

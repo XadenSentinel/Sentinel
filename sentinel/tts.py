@@ -130,12 +130,20 @@ class Speaker(threading.Thread):
         self._edge_down_until = 0.0
         self._sapi = None
         self._cache = data_dir() / "tts_cache"
+        self._interrupt = threading.Event()     # coupe la lecture en cours (interruption vocale)
 
     # ------------------------------------------------------------------ API
-    def say(self, text: str) -> None:
-        if text and self.available and self.cfg["tts_enabled"]:
+    def say(self, text: str, force: bool = False) -> None:
+        """`force` outrepasse le mode silencieux (utilisé pour confirmer qu'on vient de l'activer/désactiver)."""
+        if text and self.available and self.cfg["tts_enabled"] and (force or not self.cfg["dnd"]):
             self.busy.set()
             self._queue.put(text)
+
+    def interrupt(self) -> None:
+        """Coupe net ce qui est en train d'être dit et vide la file (l'utilisateur a parlé par-dessus)."""
+        with self._queue.mutex:
+            self._queue.queue.clear()
+        self._interrupt.set()
 
     def shutdown(self) -> None:
         self._queue.put(None)
@@ -204,7 +212,7 @@ class Speaker(threading.Thread):
             log.debug("nettoyage du cache impossible", exc_info=True)
 
     def _play(self, path: Path) -> None:
-        play_mp3(path, int(self.cfg["tts_volume"]))
+        play_mp3(path, int(self.cfg["tts_volume"]), should_stop=self._interrupt.is_set)
 
     # --- voix Windows (repli hors-ligne) ---
     def _pick_sapi_voice(self, voice) -> None:
@@ -236,7 +244,12 @@ class Speaker(threading.Thread):
         v.Rate = max(-10, min(10, int(self.cfg["tts_rate"])))
         v.Volume = max(0, min(100, int(self.cfg["tts_volume"])))
         self._pick_sapi_voice(v)
-        v.Speak(text)                                   # bloquant jusqu'à la fin
+        v.Speak(text, 1)                                 # 1 = SVSFlagsAsync : on peut l'interrompre
+        while v.Status.RunningState == 2:                # 2 = en cours de lecture
+            if self._interrupt.is_set():
+                v.Speak("", 2)                            # 2 = SVSFPurgeBeforeSpeak : stoppe net
+                return
+            time.sleep(0.05)
 
     # ------------------------------------------------------------------ lecture
     def _speak(self, text: str) -> None:
@@ -260,6 +273,8 @@ class Speaker(threading.Thread):
                 if i == 0:
                     self.on_state("speaking")
                 self._play(path)
+                if self._interrupt.is_set():
+                    break
         else:
             self.on_state("speaking")
             self._speak_sapi(text)
@@ -279,6 +294,7 @@ class Speaker(threading.Thread):
                 if text is None:
                     break
                 self.busy.set()
+                self._interrupt.clear()
                 try:
                     self._speak(text)
                 except Exception:
